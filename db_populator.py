@@ -91,39 +91,41 @@ class TaskerAssignmentDBPopulator:
     
     def convert_timezone(self, df):
         """
-        Convert latest_schedule_start_at to proper timezone based on time_zone field.
+        Convert latest_schedule_start_at to America/New_York timezone.
         """
         try:
             # Convert latest_schedule_start_at to datetime if it's not already
             df['latest_schedule_start_at'] = pd.to_datetime(df['latest_schedule_start_at'])
             
+            # Get the target timezone (America/New_York)
+            ny_tz = pytz.timezone('America/New_York')
+            
             # Create a function to convert timezone for each row
-            def convert_row_timezone(row):
+            def convert_to_ny_timezone(row):
                 try:
-                    if pd.isna(row['latest_schedule_start_at']) or pd.isna(row['time_zone']):
+                    if pd.isna(row['latest_schedule_start_at']):
                         return row['latest_schedule_start_at']
                     
-                    # Get the timezone object
-                    tz = pytz.timezone(row['time_zone'])
+                    dt = row['latest_schedule_start_at']
                     
                     # If the datetime is naive (no timezone info), assume it's UTC
-                    if row['latest_schedule_start_at'].tzinfo is None:
+                    if dt.tzinfo is None:
                         # Assume the datetime is in UTC and localize it
-                        utc_dt = pytz.UTC.localize(row['latest_schedule_start_at'])
+                        utc_dt = pytz.utc.localize(dt)
                     else:
-                        utc_dt = row['latest_schedule_start_at']
+                        utc_dt = dt
                     
-                    # Convert to the target timezone
-                    return utc_dt.astimezone(tz)
+                    # Convert to America/New_York timezone
+                    return utc_dt.astimezone(ny_tz)
                     
                 except Exception as e:
                     logger.warning(f"Timezone conversion failed for row: {e}")
                     return row['latest_schedule_start_at']
             
             # Apply timezone conversion
-            df['latest_schedule_start_at'] = df.apply(convert_row_timezone, axis=1)
+            df['latest_schedule_start_at'] = df.apply(convert_to_ny_timezone, axis=1)
             
-            logger.info("Successfully converted timestamps to proper timezones")
+            logger.info("Successfully converted timestamps to America/New_York timezone")
             return df
             
         except Exception as e:
@@ -220,7 +222,7 @@ class TaskerAssignmentDBPopulator:
             return False
         
         # Convert timezones
-        # df = self.convert_timezone(df)
+        df = self.convert_timezone(df)
         
         # Validate CSV columns
         required_columns = [
