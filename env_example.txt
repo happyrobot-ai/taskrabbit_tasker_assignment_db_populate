@@ -1,0 +1,12 @@
+# Environment variables for database connection
+# Copy this file to .env and fill in your actual database credentials
+
+# Database connection settings
+DB_HOST=your_database_host
+DB_PORT=5432
+DB_NAME=your_database_name
+DB_USER=your_username
+DB_PASSWORD=your_password
+
+# Note: CSV file path is now specified via command line argument
+# Table names are automatically determined based on test/prod mode
