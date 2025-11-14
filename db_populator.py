@@ -101,24 +101,72 @@ class TaskerAssignmentDBPopulator:
     
     def convert_timezone(self, df):
         """
-        Convert latest_schedule_start_at to datetime format, keeping it timezone-naive.
-        Stores timestamps exactly as they appear in the CSV file.
+        Convert latest_schedule_start_at from UTC to the timezone specified in time_zone column.
+        Assumes timestamps in CSV are in UTC. Converts to target timezone and stores as timezone-naive.
         """
         try:
             # Convert latest_schedule_start_at to datetime if it's not already
             df['latest_schedule_start_at'] = pd.to_datetime(df['latest_schedule_start_at'])
             
-            # If timestamps have timezone info, remove it to keep them naive
-            if df['latest_schedule_start_at'].dt.tz is not None:
-                # Convert to naive datetime by removing timezone info
-                df['latest_schedule_start_at'] = df['latest_schedule_start_at'].dt.tz_localize(None)
+            # Check if time_zone column exists
+            if 'time_zone' not in df.columns:
+                logger.warning("time_zone column not found, skipping timezone conversion")
+                # Remove timezone info if present to keep naive
+                if df['latest_schedule_start_at'].dt.tz is not None:
+                    df['latest_schedule_start_at'] = df['latest_schedule_start_at'].dt.tz_localize(None)
+                return df
             
-            # Log a sample to verify format
+            # Get UTC timezone
+            utc_tz = pytz.utc
+            
+            # Function to convert each row from UTC to target timezone
+            def convert_utc_to_timezone(row):
+                try:
+                    dt = row['latest_schedule_start_at']
+                    timezone_str = row['time_zone']
+                    
+                    # Skip if datetime or timezone is missing
+                    if pd.isna(dt) or pd.isna(timezone_str) or timezone_str == '':
+                        return dt
+                    
+                    # If datetime already has timezone, use it; otherwise assume UTC
+                    if dt.tzinfo is None:
+                        # Assume UTC and localize
+                        utc_dt = utc_tz.localize(dt)
+                    else:
+                        # Convert to UTC first if it's in a different timezone
+                        utc_dt = dt.astimezone(utc_tz)
+                    
+                    # Get target timezone
+                    try:
+                        target_tz = pytz.timezone(str(timezone_str))
+                    except Exception:
+                        logger.warning(f"Invalid timezone '{timezone_str}', keeping UTC")
+                        target_tz = utc_tz
+                    
+                    # Convert from UTC to target timezone
+                    converted_dt = utc_dt.astimezone(target_tz)
+                    
+                    # Remove timezone info to make it naive (for timezone-unaware database column)
+                    return converted_dt.replace(tzinfo=None)
+                    
+                except Exception as e:
+                    logger.warning(f"Timezone conversion failed for row: {e}")
+                    # Return original datetime without timezone
+                    if dt.tzinfo is not None:
+                        return dt.replace(tzinfo=None)
+                    return dt
+            
+            # Apply conversion row by row
+            df['latest_schedule_start_at'] = df.apply(convert_utc_to_timezone, axis=1)
+            
+            # Log a sample to verify conversion
             sample_dt = df['latest_schedule_start_at'].iloc[0] if len(df) > 0 else None
+            sample_tz = df['time_zone'].iloc[0] if len(df) > 0 and 'time_zone' in df.columns else None
             if sample_dt is not None and pd.notna(sample_dt):
-                logger.info(f"Sample timestamp (timezone-naive): {sample_dt}")
+                logger.info(f"Sample timestamp after conversion (timezone-naive): {sample_dt} (converted from UTC to {sample_tz})")
             
-            logger.info("Successfully converted timestamps to timezone-naive format")
+            logger.info("Successfully converted timestamps from UTC to specified timezones")
             return df
             
         except Exception as e:
@@ -126,6 +174,8 @@ class TaskerAssignmentDBPopulator:
             # Fallback: try to ensure datetime type is preserved
             try:
                 df['latest_schedule_start_at'] = pd.to_datetime(df['latest_schedule_start_at'])
+                if df['latest_schedule_start_at'].dt.tz is not None:
+                    df['latest_schedule_start_at'] = df['latest_schedule_start_at'].dt.tz_localize(None)
             except Exception:
                 pass
             return df
